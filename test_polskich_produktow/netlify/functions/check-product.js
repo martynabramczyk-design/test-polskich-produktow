@@ -17,6 +17,21 @@ exports.handler = async (event) => {
     });
   }
 
+  const notFound = () => ({
+    ean: code,
+    found: false,
+    complete: false,
+    name: '',
+    brand: '',
+    quantity: '',
+    kcal: null,
+    protein: null,
+    fat: null,
+    carbs: null,
+    source: 'Open Food Facts',
+    url: `https://world.openfoodfacts.org/product/${code}`
+  });
+
   try {
     const url =
       `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json`;
@@ -29,6 +44,13 @@ exports.handler = async (event) => {
       signal: AbortSignal.timeout(12000)
     });
 
+    // Produkt nie istnieje w bazie.
+    // Nie traktujemy tego jako awarii testera.
+    if (r.status === 404) {
+      return response(200, notFound());
+    }
+
+    // Pozostałe błędy serwera lub API.
     if (!r.ok) {
       return response(502, {
         error: `Open Food Facts HTTP ${r.status}`
@@ -37,21 +59,10 @@ exports.handler = async (event) => {
 
     const j = await r.json();
 
+    // Open Food Facts może zwrócić status: 0
+    // dla produktu, którego nie znaleziono.
     if (j.status === 0 || !j.product) {
-      return response(200, {
-        ean: code,
-        found: false,
-        complete: false,
-        name: '',
-        brand: '',
-        quantity: '',
-        kcal: null,
-        protein: null,
-        fat: null,
-        carbs: null,
-        source: 'Open Food Facts',
-        url: `https://world.openfoodfacts.org/product/${code}`
-      });
+      return response(200, notFound());
     }
 
     const p = j.product;
@@ -59,9 +70,11 @@ exports.handler = async (event) => {
 
     const val = (key) => {
       const value = n[key];
+
       if (value === undefined || value === null || value === '') {
         return null;
       }
+
       const number = Number(value);
       return Number.isFinite(number) ? number : null;
     };
